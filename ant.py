@@ -3,27 +3,40 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.spatial
+
+import analysis
 
 class Ant:
 
-    def __init__(self, points, pheromone_matrix, current_i):
-        self.MIN_PHEROMONE = 0.00001
-        self.ANGLE_WEIGHT = 0.5
-        self.DIST_WEIGHT = 0.5
-        self.ALPHA = 0.5
-        self.BETA = 0.5
+    def __init__(self, points, current_i, orig_kd_tree):
+        self.MIN_PHEROMONE = 0.00001 
+        self.MIN_ANGLE_H = 0.80
+        self.ALLOWABLE = 6
+        self.DIST_WEIGHT = 0.8
+        self.ANGLE_WEIGHT = 0.2
+        self.ALPHA = 0.9
+        self.BETA = 0.1
 
         self.points = points
-        self.pheromone_matrix = pheromone_matrix
         self.candidate_row_i = [current_i]
         self.candidate_heuristics = []
+        self.orig_kd_tree = orig_kd_tree
 
 
     def construct_solutions(self, kd_tree, k, pheromone_matrix):
+        self.half(kd_tree, k, pheromone_matrix)
+        self.candidate_row_i.reverse()
+        self.half(kd_tree, k, pheromone_matrix)
+
+
+    def half(self, kd_tree, k, pheromone_matrix):
+
         while True:
             dists, neighbours_i = self.unexplored_nearest(kd_tree, k)
-            if neighbours_i.size == 0: break
- 
+            if neighbours_i.size == 0: 
+                break
+
             pareto_i, dist_hs, angle_hs = self.pareto_heuristics(dists, neighbours_i)
             combine = lambda dh, ah: dh * self.DIST_WEIGHT + ah * self.ANGLE_WEIGHT
             heuristics = np.array(list(map(combine, dist_hs, angle_hs)))
@@ -31,19 +44,25 @@ class Ant:
 
             probs = self.get_probabilities(pheromones, heuristics)
             next_i = random.choices(pareto_i, probs, k=1)[0]
-            if self.terminate(pareto_i, angle_hs, next_i): break
+
+            a_index = pareto_i.tolist().index(next_i)
+            d_index = neighbours_i.tolist().index(next_i)
+            next_point = self.points[next_i]
+            if self.terminate(next_point, angle_hs[a_index], dists[d_index]): 
+                break
 
             index = pareto_i.tolist().index(next_i)
             self.candidate_heuristics.append(heuristics[index])
             self.candidate_row_i.append(next_i)
+        
 
 
     def unexplored_nearest(self, kd_tree, k):
         """Returns the unexplored k closest neighbours and distances to the current point."""
         current = self.points[self.candidate_row_i[-1]]
         dists, neighbours_i = kd_tree.query(current, k)
-        unexplored = lambda i: i not in self.candidate_row_i
-        unexplored_mask = np.array(list(map(unexplored, neighbours_i)))
+        unexplored = lambda i, d: i not in self.candidate_row_i and d != float('inf')
+        unexplored_mask = np.array(list(map(unexplored, neighbours_i, dists)))
         dists, neighbours_i = dists[unexplored_mask], neighbours_i[unexplored_mask]
         return dists, neighbours_i
 
@@ -66,7 +85,7 @@ class Ant:
             angle_heuristics = np.ones(len(neighbours))
         else:
             angle_heuristics = np.array(list(map(get_angle_heuristics, neighbours)))
-
+        
         scores = [[d, a] for d, a in zip(dist_heuristics, angle_heuristics)]
         pareto_mask = self.pareto(np.array(scores))
         dist_heuristics = dist_heuristics[pareto_mask]
@@ -86,29 +105,25 @@ class Ant:
         return is_efficient
 
 
-    def terminate(self, pareto_i, angle_hs, next_i):
-        index = pareto_i.tolist().index(next_i)
-        angle_h = angle_hs[index]
-        if angle_h < 0.65: 
+    def terminate(self, next_point, angle_h, dist):
+        dists, _ = self.orig_kd_tree.query(next_point, self.ALLOWABLE) 
+        if angle_h < self.MIN_ANGLE_H or (dists < dist).all(): 
             return True
         return False
 
 
-    def pheromone_update(self, **r_kwargs):
+    def pheromone_update(self, pheromone_matrix, **r_kwargs):
         df = pd.DataFrame(self.candidate_heuristics)
-        pheromone_updates = df.rolling(**r_kwargs).mean()[0].to_numpy()
-        for index, pheromone_update in enumerate(pheromone_updates):
-            i, j = self.candidate_row_i[index], self.candidate_row_i[index + 1]
-            key = tuple(sorted([i, j]))
-            if key in self.pheromone_matrix:
-                pheromone = self.pheromone_matrix[key]
-                self.pheromone_matrix[key] = pheromone + pheromone_update
-            else:
-                self.pheromone_matrix[key] = pheromone_update
-
-    
-    def apply_local_search(self):
-        pass
+        if not df.empty:
+            pheromone_updates = df.rolling(**r_kwargs).mean()[0].to_numpy()
+            for index, pheromone_update in enumerate(pheromone_updates):
+                i, j = self.candidate_row_i[index], self.candidate_row_i[index + 1]
+                key = tuple(sorted([i, j]))
+                if key in pheromone_matrix:
+                    pheromone = pheromone_matrix[key]
+                    pheromone_matrix[key] = pheromone + pheromone_update
+                else:
+                    pheromone_matrix[key] = pheromone_update
 
 
     def get_pheromones(self, dists, points_i, pheromone_matrix):
@@ -138,3 +153,8 @@ class Ant:
         denomenator = sum(numerators)
         probs = [numerator/denomenator for numerator in numerators]
         return probs
+
+    def __len__(self):
+        return len(self.candidate_row_i)
+
+#TODO: improve local search
