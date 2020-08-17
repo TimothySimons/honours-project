@@ -158,3 +158,4 @@ class Ant:
         return len(self.candidate_row_i)
 
 #TODO: improve local search
+#TODO: add evaporation rate
