@@ -1,4 +1,5 @@
 import random
+import statistics
 
 import numpy as np
 import scipy.spatial
@@ -18,6 +19,8 @@ class AntColony:
         self.candidate_rows = []
         self.end_points = []
 
+        self.best_heuristics = []
+
 
     def main_loop(self, num_ants, num_elitists, num_iter):
         while self.points.size != 0:
@@ -26,15 +29,25 @@ class AntColony:
             for _ in range(num_iter):
                 ants = self.search(num_ants)
                 global_best += ants
-                ants.sort(reverse=True, key=self.criteria)
+                global_best = sorted(global_best, reverse=True, key=self.criteria)
                 global_best = global_best[:num_ants]
             
-            global_best.sort(reverse=True, key=len)
+            # ----------------------------------------------------------------------
+                heur= statistics.mean([self.criteria(ant) for ant in global_best])
+                self.best_heuristics.append(heur)
+                #analysis.plot_h(self.best_heuristics)
+            #-----------------------------------------------------------------------
+
+
+            global_best.sort(reverse=True, key=lambda x: len(x.candidate_row_i))
             global_best = global_best[:num_elitists]
             self.eat(global_best)
-        #    analysis.plot(self.orig_points, self.candidate_rows, self.end_points)
-        final_rows = self.stitch2()
+
+            
+            #analysis.plot(self.orig_points, self.candidate_rows, self.end_points)
+        final_rows = self.stitch()
         end_pts = [[r[0], r[-1]] for r in final_rows]
+        analysis.plot(self.orig_points, self.candidate_rows, self.end_points)
         analysis.plot(self.orig_points, final_rows, end_pts)
 
 
@@ -49,25 +62,25 @@ class AntColony:
 
 
     def criteria(self, ant):
-        trail = self.get_pher_trail(ant.candidate_row_i)
-        if len(trail) == 0:
+        heuristics = ant.candidate_heuristics
+        if len(heuristics) == 0:
             return 0
         else:
-            return sum(trail)/len(trail)
+            return sum(heuristics)
 
 
     def search(self, n):
-        points_i= [random.randint(0, len(self.points) - 1) for _ in range(n)]
+        points_i = [random.randint(0, len(self.points) - 1) for _ in range(n)]
         ants = [Ant(self.points, i, self.orig_kd_tree) for i in points_i]
         for ant in ants:        
-            ant.construct_solutions(self.kd_tree, 3, self.pheromone_matrix)
+            ant.construct_solution(self.kd_tree, 3, self.pheromone_matrix)
         for ant in ants:
             ant.pheromone_update(self.pheromone_matrix, window=5, min_periods=1, 
                     center=True, win_type='triang')
         return ants
 
 
-    def stitch2(self):
+    def stitch(self):
         end_pts = np.array([[row[0], row[-1]] for row in self.candidate_rows])
         exists = [True for _ in range(len(self.candidate_rows))]
         final_rows = []
