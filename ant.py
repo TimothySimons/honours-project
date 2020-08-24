@@ -31,7 +31,6 @@ class Ant:
         self.points = points
         self.candidate_row_i = [current_i]
         self.candidate_heuristics = []
-        self.orig_kd_tree = orig_kd_tree
 
 
     def construct_solution(self, kd_tree, k, pheromone_matrix):
@@ -79,7 +78,7 @@ class Ant:
         current = self.points[self.candidate_row_i[-1]]
         dists, neighbours_i = kd_tree.query(current, k)
         unexplored = lambda i, d: i not in self.candidate_row_i and d != float('inf')
-        unexplored_mask = np.array(list(map(unexplored, neighbours_i, dists)))
+        unexplored_mask = list(map(unexplored, neighbours_i, dists))
         dists, neighbours_i = dists[unexplored_mask], neighbours_i[unexplored_mask]
         return dists, neighbours_i
 
@@ -87,18 +86,16 @@ class Ant:
     def pareto_heuristics(self, dists, neighbours_i):
         """Calculates pareto heuristics of traversable neighbours of the candidate row."""
         neighbours = self.points[neighbours_i]
-        p_1_i = self.candidate_row_i[-1]
-        p_1 = self.points[p_1_i]
+        p1 = self.points[self.candidate_row_i[-1]]
         if len(self.candidate_row_i) > 1:
-            p_0_i = self.candidate_row_i[-2]
-            p_0 = self.points[p_0_i]
+            p0 = self.points[self.candidate_row_i[-2]]
         else:
-            p_0 = None
+            p0 = None
 
         get_dist_heuristics = lambda d: 1 - (d/max(dists))
-        get_angle_heuristics = lambda p_2: self.get_abs_angle(p_0, p_1, p_2)/180
+        get_angle_heuristics = lambda p2: self.get_abs_angle(p0, p1, p2)/180
         dist_heuristics = np.array(list(map(get_dist_heuristics, dists)))
-        if p_0 is None:
+        if p0 is None:
             angle_heuristics = np.ones(len(neighbours))
         else:
             angle_heuristics = np.array(list(map(get_angle_heuristics, neighbours)))

@@ -10,6 +10,7 @@ import geo_shape
 from ant import Ant
 
 class AntColony:
+    """The Ant Colony is the point of mediation between all ants involved"""
     
     def __init__(self, points):
         self.orig_points = points
@@ -32,32 +33,27 @@ class AntColony:
                 global_best = sorted(global_best, reverse=True, key=self.criteria)
                 global_best = global_best[:num_ants]
             
-            # ----------------------------------------------------------------------
-                heur= statistics.mean([self.criteria(ant) for ant in global_best])
-                self.best_heuristics.append(heur)
+                #heur= statistics.mean([self.criteria(ant) for ant in global_best])
+                #self.best_heuristics.append(heur)
                 #analysis.plot_h(self.best_heuristics)
-            #-----------------------------------------------------------------------
-
 
             global_best.sort(reverse=True, key=lambda x: len(x.candidate_row_i))
             global_best = global_best[:num_elitists]
             self.eat(global_best)
-
             
-            #analysis.plot(self.orig_points, self.candidate_rows, self.end_points)
         final_rows = self.stitch()
-        end_pts = [[r[0], r[-1]] for r in final_rows]
-        analysis.plot(self.orig_points, self.candidate_rows, self.end_points)
-        analysis.plot(self.orig_points, final_rows, end_pts)
+
+        return final_rows
 
 
     def eat(self, global_best):
         delete_indices = []
         for ant in global_best:
-            candidate_row = np.take(self.points, ant.candidate_row_i, axis=0)
-            self.candidate_rows.append(candidate_row)
-            self.end_points.append([candidate_row[0], candidate_row[-1]])
-            delete_indices += ant.candidate_row_i
+            if not np.in1d(ant.candidate_row_i, delete_indices).any():
+                candidate_row = np.take(self.points, ant.candidate_row_i, axis=0)
+                self.candidate_rows.append(candidate_row)
+                self.end_points.append([candidate_row[0], candidate_row[-1]])
+                delete_indices += ant.candidate_row_i
         self.points = np.delete(self.points, delete_indices, axis=0)
 
 
@@ -70,6 +66,7 @@ class AntColony:
 
 
     def search(self, n):
+        #TODO: spawn at points away from each other
         points_i = [random.randint(0, len(self.points) - 1) for _ in range(n)]
         ants = [Ant(self.points, i, self.orig_kd_tree) for i in points_i]
         for ant in ants:        
