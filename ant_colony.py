@@ -83,11 +83,11 @@ class AntColony:
         final_rows = []
         while any(exists):
             index = exists.index(True)
+            exists[index] = False
             row = [point.tolist() for point in self.candidate_rows[index]]
             self.add_connections(row, 0, exists, end_pts)
             self.add_connections(row, -1, exists, end_pts)
             final_rows.append(row)
-            exists[index] = False
         return final_rows
 
     
@@ -95,13 +95,14 @@ class AntColony:
         next_index, next_row = self.find_connection(row, direction, exists, end_pts)
         if next_row is not None:
             next_row = [point.tolist() for point in next_row]
-            if direction == 0:
+            if direction == 0 and self.valid_angle(row[::-1], next_row[::-1]):
                 row[:0] = next_row
-            else:
+                exists[next_index] = False
+                self.add_connections(row, direction, exists, end_pts)
+            elif self.valid_angle(row, next_row):
                 row[len(row):] = next_row
-
-            exists[next_index] = False
-            self.add_connections(row, direction, exists, end_pts)
+                exists[next_index] = False
+                self.add_connections(row, direction, exists, end_pts)
 
 
     def find_connection(self, row, direction, exists, end_pts):
@@ -132,7 +133,31 @@ class AntColony:
             next_row = next_row[::-1]
 
         return next_index, next_row
+
+
+    def valid_angle(self, current_row, next_row):
+        p1 = current_row[-1]
+        p2 = next_row[0]
+
+        if len(current_row) > 1:
+            p0 = current_row[-2]
+            if self.get_abs_angle(p0, p1, p2) < 144:
+                return False
+
+        if len(next_row) > 1:
+            p3 = next_row[1]
+            if self.get_abs_angle(p1, p2, p3) < 144:
+                return False
+        
+        return True
             
+
+    def get_abs_angle(self, p_0, p_1, p_2):
+        """Returns the angle at vertex p_1 enclosed by rays p_0 p_1 and p_1 p_2."""
+        v_0 = np.array(p_0) - np.array(p_1)
+        v_1 = np.array(p_2) - np.array(p_1)
+        angle = np.math.atan2(np.linalg.det([v_0, v_1]), np.dot(v_0, v_1))
+        return abs(np.degrees(angle))
 
 
     def get_pher_trail(self, points_i):
@@ -144,10 +169,3 @@ class AntColony:
             pheromone_value = self.pheromone_matrix[key]
             pheromone_trail.append(pheromone_value)
         return pheromone_trail
-
-
-#TODO: elitism
-#TODO: global search that connects all chosen rows (end = start & nearest next) 
-#TODO: if criteria or pheromone update incorporate length, then the model will perform
-#      poorly in the case of mixed row length
-#TODO: maybe when removing rows, sort by length
