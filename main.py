@@ -10,6 +10,7 @@ ant_colony1 = AntColony(np.array(points1))
 final_rows = ant_colony1.main_loop(10, 10, 10)
 analysis.plot_rows(points1, final_rows)
 
+geo_shape.rows_to_geojson('../../rows.geojson', final_rows)
 
 
 #points2 = geo_shape.geojson_to_points('resources/2/point_detections.geojson')
