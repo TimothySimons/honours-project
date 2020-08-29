@@ -1,0 +1,15 @@
+min_angle: 144
+pher_update:
+        window: 5
+        win_type: 'triang'
+
+ant:
+        neighbours: 3
+        allowable: 6
+        min_angle: 144
+        min_pheromone: 0.00001
+        evap_rate: 0.1
+        dist_weight: 0.5
+        angle_weight: 0.5
+        alpha: 0.5
+        beta: 0.5

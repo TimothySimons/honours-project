@@ -12,7 +12,12 @@ from ant import Ant
 class AntColony:
     """The Ant Colony is the point of mediation between all ants involved"""
     
-    def __init__(self, points):
+    def __init__(self, points, config):
+        self.MIN_ANGLE = config['min_angle']    # required for stitching
+        self.WINDOW = config['pher_update']['window']
+        self.WIN_TYPE = config['pher_update']['win_type']
+
+        self.config = config
         self.orig_points = points
         self.orig_kd_tree = scipy.spatial.KDTree(points)
         self.points = np.copy(points)
@@ -66,14 +71,13 @@ class AntColony:
 
 
     def search(self, n):
-        #TODO: spawn at points away from each other
         points_i = [random.randint(0, len(self.points) - 1) for _ in range(n)]
-        ants = [Ant(self.points, i, self.orig_kd_tree) for i in points_i]
+        ants = [Ant(self.points, i, self.orig_kd_tree, self.config['ant']) for i in points_i]
         for ant in ants:        
-            ant.construct_solution(self.kd_tree, 3, self.pheromone_matrix)
+            ant.construct_solution(self.kd_tree, self.pheromone_matrix)
         for ant in ants:
-            ant.pheromone_update(self.pheromone_matrix, window=5, min_periods=1, 
-                    center=True, win_type='triang')
+            ant.pheromone_update(self.pheromone_matrix, min_periods=1, center=True,
+                    window=self.WINDOW, win_type=self.WIN_TYPE)
         return ants
 
 
@@ -81,7 +85,7 @@ class AntColony:
         end_pts = np.array([[row[0], row[-1]] for row in self.candidate_rows])
         exists = [True for _ in range(len(self.candidate_rows))]
         final_rows = []
-        while any(exists):
+        while any(exists): 
             index = exists.index(True)
             exists[index] = False
             row = [point.tolist() for point in self.candidate_rows[index]]

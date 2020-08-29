@@ -16,33 +16,33 @@ class Ant:
     '''
 
 
-    def __init__(self, points, current_i, orig_kd_tree):
+    def __init__(self, points, current_i, orig_kd_tree, config):
         '''Constructor for ant objects.'''
-        self.MAX_DIST = max(orig_kd_tree.query(points[current_i], 6)[0])
-        self.MIN_ANGLE_H = 0.80
+        self.K_NEIGHBOURS = config['neighbours']
+        self.MAX_DIST = max(orig_kd_tree.query(points[current_i], config['allowable'])[0])
+        self.MIN_ANGLE = config['min_angle']
+        self.EVAP_RATE = config['evap_rate']
+        self.DIST_WEIGHT = config['dist_weight']
+        self.ANGLE_WEIGHT = config['angle_weight']
+        self.ALPHA = config['alpha']
+        self.BETA = config['beta']
         self.MIN_PHEROMONE = 0.00001
-        
-        self.EVAP_RATE = 0.1
-        self.DIST_WEIGHT = 0.8
-        self.ANGLE_WEIGHT = 0.2
-        self.ALPHA = 0.9
-        self.BETA = 0.1
 
         self.points = points
         self.candidate_row_i = [current_i]
         self.candidate_heuristics = []
 
 
-    def construct_solution(self, kd_tree, k, pheromone_matrix):
+    def construct_solution(self, kd_tree, pheromone_matrix):
         '''Constructs a candidate row.
 
         The construction procedure starts at a given point and iteratively 
         adds edges to this point in opposite directions (starting in
         one direction followed by the other).
         '''
-        self.construct_partial(kd_tree, k, pheromone_matrix)
+        self.construct_partial(kd_tree, self.K_NEIGHBOURS, pheromone_matrix) 
         self.candidate_row_i.reverse()
-        self.construct_partial(kd_tree, k, pheromone_matrix)
+        self.construct_partial(kd_tree, self.K_NEIGHBOURS, pheromone_matrix)
 
 
     def construct_partial(self, kd_tree, k, pheromone_matrix):
@@ -65,7 +65,7 @@ class Ant:
             d_index = neighbours_i.tolist().index(next_i)
             next_point = self.points[next_i]
             angle_h, dist = angle_hs[a_index], dists[d_index]
-            if angle_h < self.MIN_ANGLE_H or dist > self.MAX_DIST:
+            if angle_h < self.MIN_ANGLE/180 or dist > self.MAX_DIST:
                 break
 
             index = pareto_i.tolist().index(next_i)
