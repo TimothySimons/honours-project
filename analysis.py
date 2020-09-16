@@ -3,12 +3,16 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.spatial
+import yaml
+from matplotlib import rcParams
 
 import geo_shape
 from ant import Ant
+from ant_colony import AntColony
 
 
 def construct_ground_truth(row_points):
+    """Constructs ground truth row from hand labelled row set."""
     kd_tree = scipy.spatial.KDTree(row_points)
     row_i = [random.randrange(0,len(row_points) - 1)]
     construct_partial(row_i, row_points, kd_tree)
@@ -19,6 +23,7 @@ def construct_ground_truth(row_points):
 
 
 def construct_partial(row_i, row_points, kd_tree, k=10):
+    """Constructs partial row in the direction of nearest next point."""
     while(True):
         current = row_points[row_i[-1]]
         dists, neighbours_i = kd_tree.query(current, k)
@@ -39,6 +44,7 @@ def construct_partial(row_i, row_points, kd_tree, k=10):
 
 
 def valid_angle(row_points, row_i, next_i):
+    """Checks that the next point keeps the row going in the forward direction."""
     row = [row_points[i] for i in row_i]
     p2 = row_points[next_i]
     if len(row) > 1:
@@ -50,27 +56,27 @@ def valid_angle(row_points, row_i, next_i):
     return True
 
 
-def get_abs_angle(p_0, p_1, p_2):
-    """Returns the angle at vertex p_1 enclosed by rays p_0 p_1 and p_1 p_2."""
-    v_0 = np.array(p_0) - np.array(p_1)
-    v_1 = np.array(p_2) - np.array(p_1)
-    angle = np.math.atan2(np.linalg.det([v_0, v_1]), np.dot(v_0, v_1))
+def get_abs_angle(p0, p1, p2):
+    """Returns the angle at vertex p1 enclosed by rays p0 p1 and p1 p2."""
+    v0 = np.array(p0) - np.array(p1)
+    v1 = np.array(p2) - np.array(p1)
+    angle = np.math.atan2(np.linalg.det([v0, v1]), np.dot(v0, v1))
     return abs(np.degrees(angle))
 
 
 def construct_edge_set(model_rows, true_rows):
-    #import pdb; pdb.set_trace()
+    """Constructus edge sets for both model produced rows and true rows."""
     current_index = 0
     for m_row in model_rows:
         for t_row in true_rows:
             current_index = assign_indices(m_row, t_row, current_index)
-    print(current_index)
     m_edge_set = rows_to_edge_set(model_rows)
     t_edge_set = rows_to_edge_set(true_rows)
     return m_edge_set, t_edge_set
 
 
 def assign_indices(model_row, true_row, current_index):
+    """Assigns common index if the same point exists in model_row and true_row."""
     for m_index in range(len(model_row)):
         for t_index in range(len(true_row)):
             m_point = model_row[m_index]
@@ -85,20 +91,25 @@ def assign_indices(model_row, true_row, current_index):
 
 
 def rows_to_edge_set(rows):
-    edge_set = set()
+    """Converts a series of rows into an edge set.
+
+    Rows consisting of only a single point do not form part of the edge set.
+    """
+    edge_set = []
     for row in rows:
-        for i in range(len(row)-1):
+        for i in range(len(row) - 1):
             j = i + 1
             if type(row[i]) is not tuple or type(row[j]) is not tuple:
-                edge_set.add((None, None))
+                edge_set.append((None, None))
             else:
                 point_i = row[i][0]
                 point_j = row[j][0]
-                edge_set.add(tuple(sorted([point_i, point_j])))
+                edge_set.append(tuple(sorted([point_i, point_j])))
     return edge_set
 
 
 def precision(model_edge_set, true_edge_set):
+    """Calculates the precision of model rows when compared to true rows."""
     true_positive = 0
     false_positive = 0
     for edge in model_edge_set:
@@ -106,12 +117,12 @@ def precision(model_edge_set, true_edge_set):
             true_positive += 1
         else:
             false_positive += 1
-
     return true_positive / (true_positive + false_positive)
     
 
 
 def recall(model_edge_set, true_edge_set):
+    """Calculates the recall of model rows when compared to true rows."""
     true_positive = 0
     for edge in model_edge_set:
         if edge in true_edge_set and edge is not (None, None):
@@ -121,11 +132,29 @@ def recall(model_edge_set, true_edge_set):
     for edge in true_edge_set:
         if edge not in model_edge_set or edge is (None, None):
             false_negative += 1
-
     return true_positive / (true_positive + false_negative)
 
 
+def iou(model_edge_set, true_edge_set):
+    """Calculates the iou of model rows when compared to true rows."""
+    true_positive = 0
+    false_positive = 0
+    for edge in model_edge_set:
+        if edge in true_edge_set and edge is not (None, None):
+            true_positive += 1
+        else:
+            false_positive += 1
+
+    false_negative = 0
+    for edge in true_edge_set:
+        if edge not in model_edge_set or edge is (None, None):
+            false_negative += 1
+
+    return true_positive / (true_positive + false_positive + false_negative)
+
+
 def plot_rows(points, rows):
+    """Plots lines and points that represent rows and trees respectively."""
     np_points = np.array(points)
     x = np_points[:,0]
     y = np_points[:,1]
@@ -139,36 +168,23 @@ def plot_rows(points, rows):
     plt.show()   
 
 
-def plot_trails(points, rows_i, pheromone_matrix):
-    fig, axs = plt.subplots(2)
-    fig.suptitle('Candidate rows and their pheromone values')
-    np_points = np.array(points)
+def plot_trails(del_points, points, pheromone_matrix):
+    np_points = np.array(del_points)
     x = np_points[:,0]
     y = np_points[:,1]
-    axs[0].scatter(x, y, color='gray')
-    
-    pheromone_trails = []
-    for num, row_i in enumerate(rows_i):
-        pheromone_trail = []
-        for i in range(len(row_i) - 1):
-            point_i = row_i[i]
-            point_j = row_i[i + 1]
-            key = tuple(sorted([point_i, point_j]))
-            pheromone_value = pheromone_matrix[key]
-            pheromone_trail.append(pheromone_value)
-        pheromone_trails.append(pheromone_trail)
+    plt.scatter(x, y, color='gray')
 
-    for row_i in rows_i:
-        row_points = [points[index] for index in row_i]
-        np_row_points = np.array(row_points)
-        row_x = np_row_points[:,0]
-        row_y = np_row_points[:,1]
-        axs[0].plot(row_x, row_y)
-
-    for trail in pheromone_trails:
-        axs[1].plot(trail)
+    pher_values = []
+    for (index_1, index_2) , pher_value in pheromone_matrix.items():
+        pher_values.append(pher_value)
+        edge_x  =  [points[index_1][0], points[index_2][0]]
+        edge_y  =  [points[index_1][1], points[index_2][1]]
+        plt.plot(edge_x, edge_y, linewidth=pher_value, color='r')
 
     plt.show()    
+
+    plt.plot(pher_values)
+    plt.show()
 
 
 def plot_precision(points ,rows, true_edge_set):
@@ -191,9 +207,37 @@ def plot_precision(points ,rows, true_edge_set):
                 plt.plot([x1,x2], [y1,y2], color='y')
             else:
                 plt.plot([x1,x2], [y1,y2], color='r')
-
     plt.show()
 
-#TODO: check if (None, None) is working as expected 
+
+def plot_results(precision, recall, jaccard):
+    plt.style.use('seaborn-whitegrid')
+    fig = plt.figure()
+    ax = plt.axes()
+    ax.set(ylim=(0.5,1))
+    ax.plot(precision)
+    ax.plot(recall)
+    ax.plot(jaccard)
+    plt.show()
 
 
+if __name__ == '__main__':
+
+    with open("config.yml", 'r') as stream:
+        config = yaml.safe_load(stream)
+
+    points = geo_shape.geojson_to_points('resources/3/point_detections.geojson')
+    ant_colony = AntColony(np.array(points), config)
+
+    model_rows = ant_colony.main_loop(15, 5, 35)
+    geo_shape.rows_to_geojson('resources/3/model_rows.geojson', model_rows)
+    true_rows = geo_shape.geojson_to_rows('resources/3/true_rows.geojson')
+    model_edge_set, true_edge_set = construct_edge_set(model_rows, true_rows)
+    precision_stat = precision(model_edge_set, true_edge_set)
+    recall_stat = recall(model_edge_set, true_edge_set)
+    iou_stat = iou(model_edge_set, true_edge_set)
+
+    print('detection samples: ', len(points))
+    print('precision: ', precision_stat)
+    print('recall: ', recall_stat)
+    print('iou: ', iou_stat)

@@ -5,8 +5,8 @@ crs = { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::22293" }}
 
 def geojson_to_points(file_path):
     points = [] 
-    with open(file_path) as file:
-        geojson_data = geojson.load(file)
+    with open(file_path) as f:
+        geojson_data = geojson.load(f)
         for feature in geojson_data.features:
             points.append(feature.geometry.coordinates)
     return points
@@ -36,8 +36,8 @@ def rows_to_geojson(file_path, rows):
 
 def geojson_to_rows(file_path):
     rows = []
-    with open(file_path) as file:
-        geojson_data = geojson.load(file)
+    with open(file_path) as f:
+        geojson_data = geojson.load(f)
         for feature in geojson_data.features:
             rows.append(feature.geometry.coordinates[0])
     return rows

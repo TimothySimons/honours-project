@@ -16,18 +16,19 @@ class Ant:
     '''
 
 
-    def __init__(self, points, current_i, orig_kd_tree, config):
+    def __init__(self, points, current_i, orig_kd_tree, points_orig_i, config):
         '''Constructor for ant objects.'''
         self.K_NEIGHBOURS = config['neighbours']
         self.MAX_DIST = max(orig_kd_tree.query(points[current_i], config['allowable'])[0])
         self.MIN_ANGLE = config['min_angle']
-        self.EVAP_RATE = config['evap_rate']
         self.DIST_WEIGHT = config['dist_weight']
         self.ANGLE_WEIGHT = config['angle_weight']
         self.ALPHA = config['alpha']
         self.BETA = config['beta']
-        self.MIN_PHEROMONE = 0.00001
+        self.MIN_PHER = 0.00001 
 
+        self.orig_kd_tree = orig_kd_tree
+        self.points_orig_i = points_orig_i
         self.points = points
         self.candidate_row_i = [current_i]
         self.candidate_heuristics = []
@@ -126,10 +127,11 @@ class Ant:
             pheromone_updates = df.rolling(**r_kwargs).mean()[0].to_numpy()
             for index, pheromone_update in enumerate(pheromone_updates):
                 i, j = self.candidate_row_i[index], self.candidate_row_i[index + 1]
-                key = tuple(sorted([i, j]))
+                orig_i, orig_j = self.points_orig_i[i], self.points_orig_i[j]
+                key = tuple(sorted([orig_i, orig_j]))
                 if key in pheromone_matrix:
                     pheromone = pheromone_matrix[key]
-                    pheromone_matrix[key] = (1 - self.EVAP_RATE) * pheromone + pheromone_update
+                    pheromone_matrix[key] = pheromone + pheromone_update
                 else:
                     pheromone_matrix[key] = pheromone_update
 
@@ -139,19 +141,20 @@ class Ant:
         current_i = self.candidate_row_i[-1]
         pheromones = []
         for i in points_i:
-            key = tuple(sorted([current_i, i]))
+            orig_i, orig_j = self.points_orig_i[current_i], self.points_orig_i[i]
+            key = tuple(sorted([orig_i, orig_j]))
             if key in pheromone_matrix:
                 pheromones.append(pheromone_matrix[key])
             else:
-                pheromones.append(self.MIN_PHEROMONE)
+                pheromones.append(self.MIN_PHER)
         return pheromones
 
 
-    def get_abs_angle(self, p_0, p_1, p_2):
-        """Returns the angle at vertex p_1 enclosed by rays p_0 p_1 and p_1 p_2."""
-        v_0 = np.array(p_0) - np.array(p_1)
-        v_1 = np.array(p_2) - np.array(p_1)
-        angle = np.math.atan2(np.linalg.det([v_0, v_1]), np.dot(v_0, v_1))
+    def get_abs_angle(self, p0, p1, p2):
+        """Returns the angle at vertex p1 enclosed by rays p0 p1 and p1 p2."""
+        v0 = np.array(p0) - np.array(p1)
+        v1 = np.array(p2) - np.array(p1)
+        angle = np.math.atan2(np.linalg.det([v0, v1]), np.dot(v0, v1))
         return abs(np.degrees(angle))
 
 
