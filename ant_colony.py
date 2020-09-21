@@ -1,11 +1,13 @@
+import functools
 import random
 import statistics
+import sys
+import time
 
 import numpy as np
 import scipy.spatial
 import matplotlib.pyplot as plt
 
-import analysis
 import geo_shape
 from ant import Ant
 
@@ -14,12 +16,14 @@ class AntColony:
     
     def __init__(self, points, config):
         self.MIN_ANGLE = config['min_angle']    # required for stitching
+        self.EVAP_RATE = config['evap_rate']
         self.WINDOW = config['pher_update']['window']
         self.WIN_TYPE = config['pher_update']['win_type']
-
+        self.MIN_PHER = 0.00001 
         self.config = config
         self.orig_points = points
         self.orig_kd_tree = scipy.spatial.KDTree(points)
+        self.points_orig_i = np.array([i for i in range(len(points))])
         self.points = np.copy(points)
         self.pheromone_matrix = {}
         self.candidate_rows = []
@@ -28,6 +32,21 @@ class AntColony:
         self.best_heuristics = []
 
 
+    def timer(func):
+        """Print the runtime of the decorated function."""
+        @functools.wraps(func)
+        def wrapper_timer(*args, **kwargs):
+            start_time = time.perf_counter()
+            value = func(*args, **kwargs)
+            end_time = time.perf_counter()
+            run_time = end_time - start_time
+            print(f"Finished {func.__name__!r} in {run_time:.4f} secs")
+            sys.stdout.flush()
+            return value
+        return wrapper_timer
+
+
+    @timer
     def main_loop(self, num_ants, num_elitists, num_iter):
         while self.points.size != 0:
             self.kd_tree = scipy.spatial.KDTree(self.points)
@@ -37,17 +56,11 @@ class AntColony:
                 global_best += ants
                 global_best = sorted(global_best, reverse=True, key=self.criteria)
                 global_best = global_best[:num_ants]
-            
-                #heur= statistics.mean([self.criteria(ant) for ant in global_best])
-                #self.best_heuristics.append(heur)
-                #analysis.plot_h(self.best_heuristics)
 
             global_best.sort(reverse=True, key=lambda x: len(x.candidate_row_i))
             global_best = global_best[:num_elitists]
             self.eat(global_best)
-            
         final_rows = self.stitch()
-
         return final_rows
 
 
@@ -59,6 +72,7 @@ class AntColony:
                 self.candidate_rows.append(candidate_row)
                 self.end_points.append([candidate_row[0], candidate_row[-1]])
                 delete_indices += ant.candidate_row_i
+        self.points_orig_i = np.delete(self.points_orig_i, delete_indices, axis=0)
         self.points = np.delete(self.points, delete_indices, axis=0)
 
 
@@ -72,15 +86,22 @@ class AntColony:
 
     def search(self, n):
         points_i = [random.randint(0, len(self.points) - 1) for _ in range(n)]
-        ants = [Ant(self.points, i, self.orig_kd_tree, self.config['ant']) for i in points_i]
+        ants = []
+        for i in points_i:
+            config = self.config['ant']
+            ant = Ant(self.points, i, self.orig_kd_tree, self.points_orig_i, config)
+            ants.append(ant)
         for ant in ants:        
             ant.construct_solution(self.kd_tree, self.pheromone_matrix)
+        for key, pher_value in self.pheromone_matrix.items():
+            self.pheromone_matrix[key] = min(self.MIN_PHER, self.EVAP_RATE * pher_value)
         for ant in ants:
             ant.pheromone_update(self.pheromone_matrix, min_periods=1, center=True,
                     window=self.WINDOW, win_type=self.WIN_TYPE)
         return ants
 
 
+    @timer
     def stitch(self):
         end_pts = np.array([[row[0], row[-1]] for row in self.candidate_rows])
         exists = [True for _ in range(len(self.candidate_rows))]
@@ -156,11 +177,11 @@ class AntColony:
         return True
             
 
-    def get_abs_angle(self, p_0, p_1, p_2):
-        """Returns the angle at vertex p_1 enclosed by rays p_0 p_1 and p_1 p_2."""
-        v_0 = np.array(p_0) - np.array(p_1)
-        v_1 = np.array(p_2) - np.array(p_1)
-        angle = np.math.atan2(np.linalg.det([v_0, v_1]), np.dot(v_0, v_1))
+    def get_abs_angle(self, p0, p1, p2):
+        """Returns the angle at vertex p1 enclosed by rays p0 p1 and p1 p2."""
+        v0 = np.array(p0) - np.array(p1)
+        v1 = np.array(p2) - np.array(p1)
+        angle = np.math.atan2(np.linalg.det([v0, v1]), np.dot(v0, v1))
         return abs(np.degrees(angle))
 
 
