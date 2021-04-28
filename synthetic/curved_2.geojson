@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "moderate",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::22293" } },
+"features": [
+
+]
+}
