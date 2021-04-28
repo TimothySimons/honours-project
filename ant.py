@@ -5,7 +5,7 @@ import pandas as pd
 
 
 class Ant:
-    '''The ants used in this modified ACO algorithm are stochastic solution 
+    """The ants used in this modified ACO algorithm are stochastic solution
     construction procedures that probabilistically build orchard rows by iteratively
     adding edge components to partial candidate rows.
 
@@ -13,11 +13,11 @@ class Ant:
     (i)  heuristic information in the form of distance and angle information.
     (ii) pheromone trails which change dynamically at run-time to reflect the agents’
          acquired search experience.
-    '''
+    """ 
 
 
     def __init__(self, points, current_i, orig_kd_tree, points_orig_i, config):
-        '''Constructor for ant objects.'''
+        """Constructor for ant objects."""
         self.K_NEIGHBOURS = config['neighbours']
         self.MAX_DIST = max(orig_kd_tree.query(points[current_i], config['allowable'])[0])
         self.MIN_ANGLE = config['min_angle']
@@ -25,53 +25,59 @@ class Ant:
         self.ANGLE_WEIGHT = config['angle_weight']
         self.ALPHA = config['alpha']
         self.BETA = config['beta']
-        self.MIN_PHER = 0.00001 
+        self.MIN_PHER = config['min_pheromone']
 
         self.orig_kd_tree = orig_kd_tree
         self.points_orig_i = points_orig_i
         self.points = points
         self.candidate_row_i = [current_i]
         self.candidate_heuristics = []
+        self.candidate_dists = []
+        self.candidate_angles = []
 
 
-    def construct_solution(self, kd_tree, pheromone_matrix):
-        '''Constructs a candidate row.
+    def construct_solution(self, kd_tree, pher_matrix, mm_dist, mm_angle):
+        """Constructs a candidate row.
 
-        The construction procedure starts at a given point and iteratively 
-        adds edges to this point in opposite directions (starting in
-        one direction followed by the other).
-        '''
-        self.construct_partial(kd_tree, self.K_NEIGHBOURS, pheromone_matrix) 
+        The construction procedure starts at a given point and iteratively adds edges to
+        this point (starting in one direction followed by the other).
+        """ 
+        self.construct_partial(kd_tree, self.K_NEIGHBOURS, pher_matrix, mm_dist, 
+                mm_angle)
         self.candidate_row_i.reverse()
-        self.construct_partial(kd_tree, self.K_NEIGHBOURS, pheromone_matrix)
+        self.construct_partial(kd_tree, self.K_NEIGHBOURS, pher_matrix, mm_dist, mm_angle)
 
 
-    def construct_partial(self, kd_tree, k, pheromone_matrix):
-        """Constructs partial candidate row in a certain direction."""
-
+    def construct_partial(self, kd_tree, k, pher_matrix, mm_dist, mm_angle):
+        """Constructs partial candidate row."""
         while True:
             dists, neighbours_i = self.unexplored_nearest(kd_tree, k)
             if neighbours_i.size == 0:
                 break
+            
+            angles = self.get_neighbour_angles(neighbours_i)
+            pareto_i, dist_hs, angle_hs = self.pareto_heuristics(dists, angles, 
+                    mm_dist, mm_angle, neighbours_i)
 
-            pareto_i, dist_hs, angle_hs = self.pareto_heuristics(dists, neighbours_i)
-            combine = lambda dh, ah: dh * self.DIST_WEIGHT + ah * self.ANGLE_WEIGHT
+            combine = lambda dh, ah: dh*self.DIST_WEIGHT + ah*self.ANGLE_WEIGHT
             heuristics = np.array(list(map(combine, dist_hs, angle_hs)))
-            pheromones = self.get_pheromones(dists, pareto_i, pheromone_matrix)
+            pheromones = self.get_pheromones(pareto_i, pher_matrix)
 
             probs = self.get_probabilities(pheromones, heuristics)
             next_i = random.choices(pareto_i, probs, k=1)[0]
 
             a_index = pareto_i.tolist().index(next_i)
             d_index = neighbours_i.tolist().index(next_i)
-            next_point = self.points[next_i]
-            angle_h, dist = angle_hs[a_index], dists[d_index]
-            if angle_h < self.MIN_ANGLE/180 or dist > self.MAX_DIST:
+            angle, dist = angles[a_index], dists[d_index]
+            if angle < self.MIN_ANGLE or dist > self.MAX_DIST:
                 break
 
+            self.candidate_dists.append(dist)
+            self.candidate_angles.append(angle)
             index = pareto_i.tolist().index(next_i)
             self.candidate_heuristics.append(heuristics[index])
             self.candidate_row_i.append(next_i)
+
 
 
     def unexplored_nearest(self, kd_tree, k):
@@ -84,7 +90,7 @@ class Ant:
         return dists, neighbours_i
 
 
-    def pareto_heuristics(self, dists, neighbours_i):
+    def pareto_heuristics(self, dists, angles, mm_dist, mm_angle, neighbours_i):
         """Calculates pareto heuristics of traversable neighbours of the candidate row."""
         neighbours = self.points[neighbours_i]
         p1 = self.points[self.candidate_row_i[-1]]
@@ -93,14 +99,14 @@ class Ant:
         else:
             p0 = None
 
-        get_dist_heuristics = lambda d: 1 - (d/max(dists))
-        get_angle_heuristics = lambda p2: self.get_abs_angle(p0, p1, p2)/180
-        dist_heuristics = np.array(list(map(get_dist_heuristics, dists)))
-        if p0 is None:
-            angle_heuristics = np.ones(len(neighbours))
-        else:
-            angle_heuristics = np.array(list(map(get_angle_heuristics, neighbours)))
-
+        scale_dist = lambda d: 1 - ((d - mm_dist[0]) / (mm_dist[1] - mm_dist[0]))
+        scale_angle = lambda a: (a - mm_angle[0]) / (mm_angle[1] - mm_angle[0])
+        bandpass = lambda x: max(min(1, x), 0)
+        dist_heuristics = np.array(list(map(scale_dist, dists)))
+        angle_heuristics = np.array(list(map(scale_angle, angles)))
+        dist_heuristics = np.array(list(map(bandpass, dist_heuristics)))
+        angle_heuristics = np.array(list(map(bandpass, angle_heuristics)))
+        
         scores = [[d, a] for d, a in zip(dist_heuristics, angle_heuristics)]
         pareto_mask = self.pareto(np.array(scores))
         dist_heuristics = dist_heuristics[pareto_mask]
@@ -136,7 +142,7 @@ class Ant:
                     pheromone_matrix[key] = pheromone_update
 
 
-    def get_pheromones(self, dists, points_i, pheromone_matrix):
+    def get_pheromones(self, points_i, pheromone_matrix):
         """Retrieves the total deposited pheromone values on the ants candidate_row."""
         current_i = self.candidate_row_i[-1]
         pheromones = []
@@ -148,6 +154,19 @@ class Ant:
             else:
                 pheromones.append(self.MIN_PHER)
         return pheromones
+
+
+    def get_neighbour_angles(self, neighbours_i):
+        """Returns a list of neighbouring angles"""
+        neighbours = self.points[neighbours_i]
+        p0 = None
+        if len(self.candidate_row_i) > 1:
+            p0 = self.points[self.candidate_row_i[-2]]
+        p1 = self.points[self.candidate_row_i[-1]]
+
+        if p0 is None:
+            return np.full(len(neighbours), 180)
+        return np.array([self.get_abs_angle(p0, p1, p2) for p2 in neighbours])
 
 
     def get_abs_angle(self, p0, p1, p2):

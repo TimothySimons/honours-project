@@ -1,25 +1,28 @@
 import functools
 import random
-import statistics
 import sys
 import time
 
 import numpy as np
 import scipy.spatial
-import matplotlib.pyplot as plt
 
-import geo_shape
 from ant import Ant
 
 class AntColony:
-    """The Ant Colony is the point of mediation between all ants involved"""
+    """The Ant Colony class encapsulates global functionality relating to the traversable
+    environment (orchard detections) and all the ants in the ant colony.
+    """
+
     
     def __init__(self, points, config):
-        self.MIN_ANGLE = config['min_angle']    # required for stitching
+        """Constructor for an Ant Colony object."""
+        self.MIN_ANGLE = config['min_angle']    # threshold for stitching
         self.EVAP_RATE = config['evap_rate']
+        self.ALLOWABLE = config['allowable']
         self.WINDOW = config['pher_update']['window']
         self.WIN_TYPE = config['pher_update']['win_type']
         self.MIN_PHER = 0.00001 
+
         self.config = config
         self.orig_points = points
         self.orig_kd_tree = scipy.spatial.KDTree(points)
@@ -29,7 +32,10 @@ class AntColony:
         self.candidate_rows = []
         self.end_points = []
 
-        self.best_heuristics = []
+        self.n = 0
+        self.min_max_dist = (float('inf'), float('-inf'))
+        self.min_max_angle = (float('inf'), float('-inf'))
+
 
 
     def timer(func):
@@ -48,6 +54,7 @@ class AntColony:
 
     @timer
     def main_loop(self, num_ants, num_elitists, num_iter):
+        """Runs the ACO algorithm for orchard row finding."""
         while self.points.size != 0:
             self.kd_tree = scipy.spatial.KDTree(self.points)
             global_best = []
@@ -56,7 +63,6 @@ class AntColony:
                 global_best += ants
                 global_best = sorted(global_best, reverse=True, key=self.criteria)
                 global_best = global_best[:num_ants]
-
             global_best.sort(reverse=True, key=lambda x: len(x.candidate_row_i))
             global_best = global_best[:num_elitists]
             self.eat(global_best)
@@ -65,6 +71,7 @@ class AntColony:
 
 
     def eat(self, global_best):
+        """Removes points of the final rows from the traversable environment."""
         delete_indices = []
         for ant in global_best:
             if not np.in1d(ant.candidate_row_i, delete_indices).any():
@@ -77,32 +84,46 @@ class AntColony:
 
 
     def criteria(self, ant):
+        """Criteria for the best set."""
         heuristics = ant.candidate_heuristics
         if len(heuristics) == 0:
             return 0
-        else:
-            return sum(heuristics)
+        return sum(heuristics)
 
 
     def search(self, n):
+        """Includes row construction and pheromone update of all ants in a single search
+        iteration."""
         points_i = [random.randint(0, len(self.points) - 1) for _ in range(n)]
         ants = []
+
         for i in points_i:
             config = self.config['ant']
             ant = Ant(self.points, i, self.orig_kd_tree, self.points_orig_i, config)
             ants.append(ant)
+
         for ant in ants:        
-            ant.construct_solution(self.kd_tree, self.pheromone_matrix)
+            ant.construct_solution(self.kd_tree, self.pheromone_matrix,
+                    self.min_max_dist, self.min_max_angle)
+            mm_dist = self.update_min_max(ant.candidate_dists, self.min_max_dist, self.n)
+            mm_angle = self.update_min_max(ant.candidate_angles, self.min_max_angle, self.n)
+            if mm_dist: self.min_max_dist = mm_dist 
+            if mm_angle: self.min_max_angle = mm_angle 
+            self.n += 1
+
         for key, pher_value in self.pheromone_matrix.items():
             self.pheromone_matrix[key] = min(self.MIN_PHER, self.EVAP_RATE * pher_value)
+
         for ant in ants:
             ant.pheromone_update(self.pheromone_matrix, min_periods=1, center=True,
-                    window=self.WINDOW, win_type=self.WIN_TYPE)
+                                 window=self.WINDOW, win_type=self.WIN_TYPE)
+
         return ants
 
 
     @timer
     def stitch(self):
+        """Returns final rows after the stitching."""
         end_pts = np.array([[row[0], row[-1]] for row in self.candidate_rows])
         exists = [True for _ in range(len(self.candidate_rows))]
         final_rows = []
@@ -117,6 +138,7 @@ class AntColony:
 
     
     def add_connections(self, row, direction, exists, end_pts):
+        """Recursively adds disjoint rows to the current row in the specified direction."""
         next_index, next_row = self.find_connection(row, direction, exists, end_pts)
         if next_row is not None:
             next_row = [point.tolist() for point in next_row]
@@ -131,21 +153,24 @@ class AntColony:
 
 
     def find_connection(self, row, direction, exists, end_pts):
+        """Finds the most elligible disjoint final row to add to the current row."""
         pair = [row[0], row[-1]]
         end_pt = pair[direction]
-        dists, neighbours_i = self.orig_kd_tree.query(end_pt, 6)
+        _, neighbours_i = self.orig_kd_tree.query(end_pt, self.ALLOWABLE)
         points = self.orig_points[neighbours_i]
-        
         flat = end_pts.reshape(len(end_pts)*2, 2)
-        bool_f = lambda p: True if (flat == p).any() and (pair != p).all() else False
+        bool_f = lambda p: (flat == p).all() and (pair != p).all()
         bool_mask = list(map(bool_f, points))
         traversable = points[bool_mask]
-        dists = dists[bool_mask]
-        
+
         if traversable.size == 0:
             return None, None
 
-        next_point = traversable[np.argmin(dists)]
+        if len(row) > 1:
+            penultimate = row[-2] if direction == -1 else row[1]
+            get_angle = lambda p: self.get_abs_angle(penultimate, end_pt, p)
+            traversable = sorted(traversable.tolist(), key=get_angle, reverse=True)
+        next_point = np.asarray(traversable[0])
         next_index = flat.tolist().index(next_point.tolist())//2
         next_row = self.candidate_rows[next_index]
         
@@ -161,19 +186,17 @@ class AntColony:
 
 
     def valid_angle(self, current_row, next_row):
+        """Checks endpoints and penultimate points of two rows for collinearity."""
         p1 = current_row[-1]
         p2 = next_row[0]
-
         if len(current_row) > 1:
             p0 = current_row[-2]
-            if self.get_abs_angle(p0, p1, p2) < 144:
+            if self.get_abs_angle(p0, p1, p2) < self.MIN_ANGLE: 
                 return False
-
         if len(next_row) > 1:
             p3 = next_row[1]
-            if self.get_abs_angle(p1, p2, p3) < 144:
+            if self.get_abs_angle(p1, p2, p3) < self.MIN_ANGLE:
                 return False
-        
         return True
             
 
@@ -185,7 +208,20 @@ class AntColony:
         return abs(np.degrees(angle))
 
 
+    def update_min_max(self, row_metrics, avg_min_max, n):
+        if row_metrics:
+            min_metric, max_metric = min(row_metrics), max(row_metrics)
+            avg_min, avg_max = avg_min_max
+            if avg_min < min_metric:
+                min_metric = (avg_min * n + min_metric) / (n + 1)
+            if avg_max > max_metric:
+                max_metric = (avg_max * n + max_metric) / (n + 1)
+            return (min_metric, max_metric)
+        return None
+
+
     def get_pher_trail(self, points_i):
+        """Returns the pheromones of all connected edges in the list of provided points."""
         pheromone_trail = []
         for index in range(len(points_i)-1):
             point_i = points_i[index]
